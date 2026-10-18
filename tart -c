@@ -1,0 +1,239 @@
+warning: in the working copy of 'app/(tabs)/_layout.tsx', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/app/(tabs)/_layout.tsx b/app/(tabs)/_layout.tsx[m
+[1mindex af2dc4f..30bcab6 100644[m
+[1m--- a/app/(tabs)/_layout.tsx[m
+[1m+++ b/app/(tabs)/_layout.tsx[m
+[36m@@ -1,93 +1,196 @@[m
+[31m-import { Tabs } from 'expo-router';[m
+[32m+[m[32mimport { useCallback, useState } from 'react';[m
+[32m+[m[32mimport { Tabs, useFocusEffect } from 'expo-router';[m
+ import Ionicons from '@expo/vector-icons/Ionicons';[m
+ [m
+ import { COLORS } from '@/constants/colors';[m
+[32m+[m[32mimport { useAuth } from '@/lib/auth';[m
+[32m+[m[32mimport { getProfile, type Role } from '@/lib/profiles';[m
+ [m
+ export default function TabLayout() {[m
+[32m+[m[32m  const { user } = useAuth();[m
+[32m+[m[32m  const [role, setRole] = useState<Role | null>(null);[m
+[32m+[m[32m  const [loadingRole, setLoadingRole] = useState(true);[m
+[32m+[m
+[32m+[m[32m  useFocusEffect([m
+[32m+[m[32m    useCallback(() => {[m
+[32m+[m[32m      let isActive = true;[m
+[32m+[m
+[32m+[m[32m      async function loadUserRole() {[m
+[32m+[m[32m        if (!user?.id) {[m
+[32m+[m[32m          if (isActive) {[m
+[32m+[m[32m            setRole(null);[m
+[32m+[m[32m            setLoadingRole(false);[m
+[32m+[m[32m          }[m
+[32m+[m[32m          return;[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        try {[m
+[32m+[m[32m          setLoadingRole(true);[m
+[32m+[m
+[32m+[m[32m          const profile = await getProfile(user.id);[m
+[32m+[m
+[32m+[m[32m          if (isActive) {[m
+[32m+[m[32m            setRole(profile?.role ?? null);[m
+[32m+[m[32m          }[m
+[32m+[m[32m        } catch (error) {[m
+[32m+[m[32m          console.error('Failed to load user role:', error);[m
+[32m+[m
+[32m+[m[32m          if (isActive) {[m
+[32m+[m[32m            setRole(null);[m
+[32m+[m[32m          }[m
+[32m+[m[32m        } finally {[m
+[32m+[m[32m          if (isActive) {[m
+[32m+[m[32m            setLoadingRole(false);[m
+[32m+[m[32m          }[m
+[32m+[m[32m        }[m
+[32m+[m[32m      }[m
+[32m+[m
+[32m+[m[32m      loadUserRole();[m
+[32m+[m
+[32m+[m[32m      return () => {[m
+[32m+[m[32m        isActive = false;[m
+[32m+[m[32m      };[m
+[32m+[m[32m    }, [user?.id])[m
+[32m+[m[32m  );[m
+[32m+[m
+[32m+[m[32m  const isStudent = role === 'student';[m
+[32m+[m[32m  const isTeacher = role === 'teacher';[m
+[32m+[m[32m  const isAdmin = role === 'admin';[m
+[32m+[m
+[32m+[m[32m  const showRoleTabs = !loadingRole && role !== null;[m
+[32m+[m
+   return ([m
+     <Tabs[m
+       screenOptions={{[m
+[31m-        headerShown: false,[m
+[32m+[m[32m        headerShown: true,[m
+[32m+[m
+         tabBarActiveTintColor: COLORS.primary,[m
+[31m-        headerStyle: { backgroundColor: COLORS.background },[m
+[31m-        headerShadowVisible: false,[m
+[31m-        headerTintColor: COLORS.textPrimary,[m
+[32m+[m[32m        tabBarInactiveTintColor: COLORS.textSecondary,[m
+[32m+[m
+         tabBarStyle: {[m
+           backgroundColor: COLORS.card,[m
+           borderTopColor: COLORS.border,[m
+           borderTopWidth: 1,[m
+[32m+[m[32m          height: 64,[m
+[32m+[m[32m          paddingTop: 6,[m
+[32m+[m[32m          paddingBottom: 6,[m
+[32m+[m[32m        },[m
+[32m+[m
+[32m+[m[32m        tabBarLabelStyle: {[m
+[32m+[m[32m          fontSize: 11,[m
+[32m+[m[32m          fontWeight: '600',[m
+[32m+[m[32m        },[m
+[32m+[m
+[32m+[m[32m        headerStyle: {[m
+[32m+[m[32m          backgroundColor: COLORS.card,[m
+[32m+[m[32m        },[m
+[32m+[m
+[32m+[m[32m        headerTintColor: COLORS.textPrimary,[m
+[32m+[m
+[32m+[m[32m        headerTitleStyle: {[m
+[32m+[m[32m          fontWeight: '700',[m
+[32m+[m[32m        },[m
+[32m+[m
+[32m+[m[32m        sceneStyle: {[m
+[32m+[m[32m          backgroundColor: COLORS.background,[m
+         },[m
+       }}[m
+     >[m
+[32m+[m[32m      {/* HOME: accessible to all authenticated roles */}[m
+       <Tabs.Screen[m
+         name="index"[m
+         options={{[m
+           title: 'Home',[m
+[31m-          tabBarIcon: ({ color, focused }) => ([m
+[31m-            <Ionicons[m
+[31m-              name={focused ? 'home-sharp' : 'home-outline'}[m
+[31m-              color={color}[m
+[31m-              size={24}[m
+[31m-            />[m
+[32m+[m[32m          headerTitle: 'QR Attendance',[m
+[32m+[m[32m          tabBarIcon: ({ color, size }) => ([m
+[32m+[m[32m            <Ionicons name="home-outline" size={size} color={color} />[m
+           ),[m
+         }}[m
+       />[m
+ [m
+[32m+[m[32m      {/* SCAN: students only */}[m
+       <Tabs.Screen[m
+         name="scan"[m
+         options={{[m
+           title: 'Scan',[m
+[31m-          tabBarIcon: ({ color, focused }) => ([m
+[31m-            <Ionicons[m
+[31m-              name={focused ? 'qr-code' : 'qr-code-outline'}[m
+[31m-              color={color}[m
+[31m-              size={24}[m
+[31m-            />[m
+[32m+[m[32m          headerTitle: 'Scan QR Code',[m
+[32m+[m[32m          href: showRoleTabs && isStudent ? undefined : null,[m
+[32m+[m[32m          tabBarIcon: ({ color, size }) => ([m
+[32m+[m[32m            <Ionicons name="qr-code-outline" size={size} color={color} />[m
+           ),[m
+         }}[m
+       />[m
+ [m
+[32m+[m[32m      {/* HISTORY: students and teachers */}[m
+       <Tabs.Screen[m
+         name="history"[m
+         options={{[m
+           title: 'History',[m
+[31m-          tabBarIcon: ({ color, focused }) => ([m
+[31m-            <Ionicons[m
+[31m-              name={focused ? 'time' : 'time-outline'}[m
+[31m-              color={color}[m
+[31m-              size={24}[m
+[31m-            />[m
+[32m+[m[32m          headerTitle: 'Attendance History',[m
+[32m+[m[32m          href:[m
+[32m+[m[32m            showRoleTabs && (isStudent || isTeacher)[m
+[32m+[m[32m              ? undefined[m
+[32m+[m[32m              : null,[m
+[32m+[m[32m          tabBarIcon: ({ color, size }) => ([m
+[32m+[m[32m            <Ionicons name="time-outline" size={size} color={color} />[m
+           ),[m
+         }}[m
+       />[m
+ [m
+[32m+[m[32m      {/* PROFILE: all authenticated roles */}[m
+       <Tabs.Screen[m
+         name="profile"[m
+         options={{[m
+           title: 'Profile',[m
+[31m-          tabBarIcon: ({ color, focused }) => ([m
+[31m-            <Ionicons[m
+[31m-              name={focused ? 'person' : 'person-outline'}[m
+[31m-              color={color}[m
+[31m-              size={24}[m
+[31m-            />[m
+[32m+[m[32m          headerTitle: 'My Profile',[m
+[32m+[m[32m          tabBarIcon: ({ color, size }) => ([m
+[32m+[m[32m            <Ionicons name="person-circle-outline" size={size} color={color} />[m
+           ),[m
+         }}[m
+       />[m
+ [m
+[32m+[m[32m      {/* TEACHER: teachers only */}[m
+       <Tabs.Screen[m
+         name="teacher"[m
+         options={{[m
+           title: 'Teacher',[m
+[31m-          tabBarIcon: ({ color, focused }) => ([m
+[31m-            <Ionicons[m
+[31m-              name={focused ? 'clipboard' : 'clipboard-outline'}[m
+[31m-              color={color}[m
+[31m-              size={24}[m
+[31m-            />[m
+[32m+[m[32m          headerTitle: 'Teacher Dashboard',[m
+[32m+[m[32m          href: showRoleTabs && isTeacher ? undefined : null,[m
+[32m+[m[32m          tabBarIcon: ({ color, size }) => ([m
+[32m+[m[32m            <Ionicons name="school-outline" size={size} color={color} />[m
+           ),[m
+         }}[m
+       />[m
+[32m+[m
+[32m+[m[32m      {/* ADMIN DASHBOARD: accessible through Home, not the bottom tab bar */}[m
+[32m+[m[32m      <Tabs.Screen[m
+[32m+[m[32m        name="dashboard"[m
+[32m+[m[32m        options={{[m
+[32m+[m[32m          title: 'Dashboard',[m
+[32m+[m[32m          headerTitle: 'Admin Dashboard',[m
+[32m+[m[32m          href: null,[m
+[32m+[m[32m        }}[m
+[32m+[m[32m      />[m
+[32m+[m
+[32m+[m[32m      {/* ADMIN REPORTS: accessible through Home, not the bottom tab bar */}[m
+[32m+[m[32m      <Tabs.Screen[m
+[32m+[m[32m        name="report"[m
+[32m+[m[32m        options={{[m
+[32m+[m[32m          title: 'Reports',[m
+[32m+[m[32m          headerTitle: 'Attendance Reports',[m
+[32m+[m[32m          href: null,[m
+[32m+[m[32m        }}[m
+[32m+[m[32m      />[m
+[32m+[m
+[32m+[m[32m      {/* REMINDERS: accessible through Home, not the bottom tab bar */}[m
+[32m+[m[32m      <Tabs.Screen[m
+[32m+[m[32m        name="reminder"[m
+[32m+[m[32m        options={{[m
+[32m+[m[32m          title: 'Reminders',[m
+[32m+[m[32m          headerTitle: 'Event Reminders',[m
+[32m+[m[32m          href: null,[m
+[32m+[m[32m        }}[m
+[32m+[m[32m      />[m
+     </Tabs>[m
+   );[m
+[31m-}[m
+\ No newline at end of file[m
+[32m+[m[32m}[m

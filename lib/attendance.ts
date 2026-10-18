@@ -18,6 +18,7 @@ export type TeacherEventAttendance = {
 
   attendees: {
     studentId: string;
+    studentName: string;
     scannedAt: string;
   }[];
 };
@@ -50,17 +51,16 @@ export async function getTeacherEventAttendance(
     return [];
   }
 
+  if (events.length === 0) {
+    return [];
+  }
+
   const eventIds = events.map(
     (event: any) => event.id
   );
 
-  if (eventIds.length === 0) {
-    return [];
-  }
-
   /*
-   * Get all attendance records
-   * belonging to the teacher's events
+   * Get attendance records for the teacher's events
    */
   const {
     data: attendance,
@@ -85,12 +85,47 @@ export async function getTeacherEventAttendance(
   }
 
   /*
-   * Combine events + attendance
+   * Get the names of students who scanned
+   */
+  const studentIds = [
+    ...new Set(
+      attendance.map(
+        (row: any) => row.student_id
+      )
+    ),
+  ];
+
+  const nameByStudentId: Record<string, string> = {};
+
+  if (studentIds.length > 0) {
+    const {
+      data: profiles,
+      error: profileError,
+    } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .in('id', studentIds);
+
+    if (profileError) {
+      console.error(
+        'Error loading student names:',
+        profileError
+      );
+    } else {
+      profiles?.forEach((profile: any) => {
+        nameByStudentId[profile.id] =
+          profile.full_name?.trim() || '';
+      });
+    }
+  }
+
+  /*
+   * Combine events, attendance, and student names
    */
   return events.map((event: any) => {
     const rows = attendance.filter(
-      (attendanceRow: any) =>
-        attendanceRow.event_id === event.id
+      (row: any) =>
+        row.event_id === event.id
     );
 
     return {
@@ -107,12 +142,14 @@ export async function getTeacherEventAttendance(
       attendeeCount: rows.length,
 
       attendees: rows.map(
-        (attendanceRow: any) => ({
-          studentId:
-            attendanceRow.student_id,
+        (row: any) => ({
+          studentId: row.student_id,
 
-          scannedAt:
-            attendanceRow.scanned_at,
+          studentName:
+            nameByStudentId[row.student_id] ||
+            'Name unavailable',
+
+          scannedAt: row.scanned_at,
         })
       ),
     };
@@ -163,7 +200,7 @@ export async function registerAttendance(
   const payload = result.payload;
 
   /*
-   * Check event start/end
+   * Check event start and end times
    */
   const now = Date.now();
 
@@ -178,16 +215,14 @@ export async function registerAttendance(
   if (start && now < start) {
     return {
       success: false,
-      message:
-        'Event has not started yet.',
+      message: 'Event has not started yet.',
     };
   }
 
   if (end && now > end) {
     return {
       success: false,
-      message:
-        'Event has already ended.',
+      message: 'Event has already ended.',
     };
   }
 
@@ -198,17 +233,16 @@ export async function registerAttendance(
     payload.title ?? payload.event;
 
   /*
-   * Look for existing event
+   * Look for the existing event
    */
   let event: {
     id: string;
     title: string;
   } | null = null;
 
-  const foundEvent =
-    await getEventByCode(
-      payload.event
-    );
+  const foundEvent = await getEventByCode(
+    payload.event
+  );
 
   if (foundEvent) {
     event = foundEvent;
@@ -223,13 +257,10 @@ export async function registerAttendance(
       .from('events')
       .insert([
         {
-          event_code:
-            payload.event,
+          event_code: payload.event,
           title,
-          start_time:
-            payload.start ?? null,
-          end_time:
-            payload.end ?? null,
+          start_time: payload.start ?? null,
+          end_time: payload.end ?? null,
         },
       ])
       .select('id, title')
@@ -243,8 +274,7 @@ export async function registerAttendance(
 
       return {
         success: false,
-        message:
-          'Could not create event.',
+        message: 'Could not create event.',
       };
     }
 
@@ -286,8 +316,7 @@ export async function registerAttendance(
 
   return {
     success: true,
-    message:
-      'Attendance recorded!',
+    message: 'Attendance recorded!',
     eventTitle: event.title,
   };
 }
@@ -332,8 +361,7 @@ export async function getAttendanceHistory(
     eventTitle:
       row.events?.title ?? '',
 
-    scannedAt:
-      row.scanned_at,
+    scannedAt: row.scanned_at,
   }));
 }
 
@@ -367,6 +395,11 @@ export async function getTeacherEventSummary(
     });
 
   if (eventError || !events) {
+    console.error(
+      'Error loading teacher event summary:',
+      eventError
+    );
+
     return [];
   }
 
@@ -387,6 +420,11 @@ export async function getTeacherEventSummary(
     .in('event_id', eventIds);
 
   if (attError || !attRows) {
+    console.error(
+      'Error loading attendance summary:',
+      attError
+    );
+
     return [];
   }
 
@@ -399,10 +437,8 @@ export async function getTeacherEventSummary(
 
   return events.map((event: any) => ({
     eventId: event.id,
-    eventCode:
-      event.event_code,
-    title:
-      event.title,
+    eventCode: event.event_code,
+    title: event.title,
     attendeeCount:
       counts[event.id] ?? 0,
   }));
