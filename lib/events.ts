@@ -16,6 +16,7 @@ export type CloudEvent = {
   end_time: string | null;
   created_by: string | null;
   created_at: string;
+  status: 'open' | 'closed';
 };
 
 export type TeacherEventStat = {
@@ -23,6 +24,7 @@ export type TeacherEventStat = {
   event_code: string;
   title: string;
   created_at: string;
+  status: 'open' | 'closed' | string;
   attendanceCount: number;
   attendancePercentage: number;
 };
@@ -148,8 +150,9 @@ export async function getTeacherDashboardStats(
   // Fetch events belonging to this teacher.
   const { data: eventRows, error: eventsError } = await supabase
     .from('events')
-    .select('id, event_code, title, created_at')
+    .select('id, event_code, title, created_at, status')
     .eq('created_by', teacherId)
+
     .order('created_at', { ascending: false });
 
   if (eventsError) {
@@ -226,6 +229,7 @@ export async function getTeacherDashboardStats(
 
     return {
       ...event,
+      status: event.status,
       attendanceCount,
       attendancePercentage,
     };
@@ -241,3 +245,50 @@ export async function getTeacherDashboardStats(
     error: null,
   };
 }
+
+/**
+ * Get upcoming events for the Home screen.
+ * Closed events are excluded.
+ */
+export async function getUpcomingEvents(): Promise<CloudEvent[]> {
+  const now = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from('events')
+    .select(
+      'id, event_code, title, start_time, end_time, created_by, created_at, status'
+    )
+    .eq('status', 'open')
+    .gte('start_time', now)
+    .order('start_time', { ascending: true })
+    .limit(5);
+
+  if (error) {
+    console.error('Error loading upcoming events:', error);
+    throw new Error('Unable to load upcoming events.');
+  }
+
+  return (data ?? []) as CloudEvent[];
+}
+
+/**
+ * Get only open events created by a specific teacher.
+ */
+export async function getOpenEventsByTeacher(
+  teacherId: string
+): Promise<CloudEvent[]> {
+  const { data, error } = await supabase
+    .from('events')
+    .select('*')
+    .eq('created_by', teacherId)
+    .eq('status', 'open')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error loading open teacher events:', error);
+    return [];
+  }
+
+  return (data ?? []) as CloudEvent[];
+}
+

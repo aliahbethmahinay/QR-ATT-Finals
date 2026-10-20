@@ -4,15 +4,18 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
+  TextInput,
   Text,
   View,
 } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
 import { COLORS } from '@/constants/colors';
 import { useAuth } from '@/lib/auth';
@@ -27,6 +30,17 @@ type UserProfile = {
   full_name: string | null;
   role: UserRole;
   created_at?: string;
+};
+
+type AdminEvent = {
+  id: string;
+  event_code: string;
+  title: string;
+  start_time: string | null;
+  end_time: string | null;
+  created_by: string | null;
+  created_at: string;
+  status: 'open' | 'closed';
 };
 
 type DashboardStats = {
@@ -67,8 +81,20 @@ const ROLES: UserRole[] = ['student', 'teacher', 'admin'];
 
 export default function AdminScreen() {
   const { user } = useAuth();
+  const router = useRouter();
 
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [events, setEvents] = useState<AdminEvent[]>([]);
+  const [eventModalVisible, setEventModalVisible] = useState(false);
+  const [savingEvent, setSavingEvent] = useState(false);
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [eventTitle, setEventTitle] = useState('');
+  const [eventCode, setEventCode] = useState('');
+  const [eventStart, setEventStart] = useState('');
+  const [eventEnd, setEventEnd] = useState('');
+  const [datePickerTarget, setDatePickerTarget] = useState<'start' | 'end' | null>(null);
+  const [pickerStage, setPickerStage] = useState<'date' | 'time'>('date');
+  const [pickerValue, setPickerValue] = useState(new Date());
   const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS);
   const [reports, setReports] = useState<AttendanceReport[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -195,6 +221,155 @@ export default function AdminScreen() {
     }
   }, [user]);
 
+  const loadEvents = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('events')
+      .select('id, event_code, title, start_time, end_time, created_by, created_at, status')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Failed to load events:', error);
+      Alert.alert('Events Unavailable', 'Could not load events. Check your Supabase permissions and try again.');
+      return;
+    }
+
+    setEvents((data ?? []) as AdminEvent[]);
+  }, []);
+
+  const formatPickerValue = (value: string) => {
+    if (!value) return 'Choose date and time';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Choose date and time';
+    return date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  };
+
+  const openDateTimePicker = (target: 'start' | 'end') => {
+    const currentValue = target === 'start' ? eventStart : eventEnd;
+    const parsed = currentValue ? new Date(currentValue) : new Date();
+    setPickerValue(Number.isNaN(parsed.getTime()) ? new Date() : parsed);
+    setDatePickerTarget(target);
+    setPickerStage('date');
+  };
+
+  const handleDateTimeChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
+    if (event.type === 'dismissed') {
+      setDatePickerTarget(null);
+      return;
+    }
+    if (!selectedDate) return;
+    setPickerValue(selectedDate);
+    if (pickerStage === 'date') {
+      // Android closes the native picker after each selection, so move on to time.
+      setPickerStage('time');
+      return;
+    }
+    const value = selectedDate.toISOString();
+    if (datePickerTarget === 'start') setEventStart(value);
+    if (datePickerTarget === 'end') setEventEnd(value);
+    setDatePickerTarget(null);
+  };
+
+  const openCreateEvent = () => {
+    setEditingEventId(null);
+    setEventTitle('');
+    setEventCode('');
+    setEventStart('');
+    setEventEnd('');
+    setEventModalVisible(true);
+  };
+
+  const openEditEvent = (event: AdminEvent) => {
+    setEditingEventId(event.id);
+    setEventTitle(event.title);
+    setEventCode(event.event_code);
+    setEventStart(event.start_time ?? '');
+    setEventEnd(event.end_time ?? '');
+    setEventModalVisible(true);
+  };
+
+  const saveEvent = async () => {
+    const title = eventTitle.trim();
+    const code = eventCode.trim();
+    const start = eventStart.trim();
+    const end = eventEnd.trim();
+
+    if (!title || !code) {
+      Alert.alert('Missing Information', 'Enter both an event title and event code.');
+      return;
+    }
+    if (start && Number.isNaN(Date.parse(start))) {
+      Alert.alert('Invalid Start Time', 'Enter a valid date/time, for example 2026-10-25T09:00:00+08:00.');
+      return;
+    }
+    if (end && Number.isNaN(Date.parse(end))) {
+      Alert.alert('Invalid End Time', 'Enter a valid date/time, for example 2026-10-25T11:00:00+08:00.');
+      return;
+    }
+    if (start && end && Date.parse(end) <= Date.parse(start)) {
+      Alert.alert('Invalid Schedule', 'End time must be later than start time.');
+      return;
+    }
+
+    setSavingEvent(true);
+    try {
+      if (editingEventId) {
+        const { error } = await supabase.from('events').update({
+          title,
+          event_code: code,
+          start_time: start ? new Date(start).toISOString() : null,
+          end_time: end ? new Date(end).toISOString() : null,
+        }).eq('id', editingEventId);
+        if (error) throw error;
+      } else {
+        const { data: authData, error: authError } = await supabase.auth.getUser();
+        if (authError || !authData.user) throw new Error('You must be signed in to create an event.');
+        const { error } = await supabase.from('events').insert({
+          title,
+          event_code: code,
+          start_time: start ? new Date(start).toISOString() : null,
+          end_time: end ? new Date(end).toISOString() : null,
+          created_by: authData.user.id,
+          status: 'open',
+        });
+        if (error) throw error;
+      }
+
+      setEventModalVisible(false);
+      await Promise.all([loadEvents(), loadStats(), loadReports()]);
+      Alert.alert('Success', editingEventId ? 'Event updated.' : 'Event created.');
+    } catch (error: any) {
+      console.error('Failed to save event:', error);
+      Alert.alert('Unable to Save Event', error?.message || 'Please check the event code and Supabase permissions.');
+    } finally {
+      setSavingEvent(false);
+    }
+  };
+
+  const toggleEventStatus = (event: AdminEvent) => {
+    const nextStatus = event.status === 'closed' ? 'open' : 'closed';
+    Alert.alert(
+      `${nextStatus === 'closed' ? 'Close' : 'Reopen'} Event`,
+      `Are you sure you want to ${nextStatus === 'closed' ? 'close' : 'reopen'} “${event.title}”?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Confirm',
+          onPress: async () => {
+            try {
+              const { error } = await supabase.from('events').update({ status: nextStatus }).eq('id', event.id);
+              if (error) throw error;
+              await Promise.all([loadEvents(), loadStats(), loadReports()]);
+              Alert.alert('Event Updated', `${event.title} is now ${nextStatus}.`);
+            } catch (error: any) {
+              console.error('Failed to change event status:', error);
+              Alert.alert('Update Failed', error?.message || 'Could not update event status.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const refreshDashboard = useCallback(async () => {
     setRefreshing(true);
 
@@ -202,10 +377,11 @@ export default function AdminScreen() {
       loadUsers(),
       loadStats(),
       loadReports(),
+      loadEvents(),
     ]);
 
     setRefreshing(false);
-  }, [loadUsers, loadStats, loadReports]);
+  }, [loadUsers, loadStats, loadReports, loadEvents]);
 
   useFocusEffect(
     useCallback(() => {
@@ -430,10 +606,21 @@ export default function AdminScreen() {
         <View>
           <View style={styles.header}>
             <Text style={styles.pageTitle}>Admin Dashboard</Text>
-            <Text style={styles.subtitle}>
-              Manage users, events, and attendance
-            </Text>
           </View>
+
+          <Pressable
+            style={styles.attendanceOverviewButton}
+            onPress={() => router.push('/admin-attendance')}
+          >
+            <View style={styles.attendanceOverviewIcon}>
+              <Ionicons name="stats-chart-outline" size={22} color={COLORS.primary} />
+            </View>
+            <View style={styles.attendanceOverviewTextWrap}>
+              <Text style={styles.attendanceOverviewTitle}>Overall Attendance</Text>
+              <Text style={styles.attendanceOverviewSubtitle}>View attendance totals and event-by-event reports</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
+          </Pressable>
 
           <View style={styles.summaryCard}>
             <View style={styles.headingRow}>
@@ -466,6 +653,96 @@ export default function AdminScreen() {
           
 
           
+
+          <View style={styles.eventSection}>
+            <View style={styles.userManagementHeader}>
+              <Text style={styles.sectionTitle}>Event Management</Text>
+              
+            </View>
+            {events.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No events found</Text>
+                <Text style={styles.mutedText}>Create an event to get started.</Text>
+              </View>
+            ) : events.map((event) => (
+              <View style={styles.eventCard} key={event.id}>
+                <View style={styles.eventCardTop}>
+                  <View style={styles.eventTitleWrap}>
+                    <Text style={styles.eventTitle}>{event.title}</Text>
+                    <Text style={styles.mutedText}>Code: {event.event_code}</Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      event.status === 'closed' ? styles.closedBadge : styles.openBadge,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.statusText,
+                        event.status === 'closed' ? styles.closedBadgeText : styles.openBadgeText,
+                      ]}
+                    >
+                      {event.status === 'closed' ? 'CLOSED' : 'OPEN'}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.mutedText}>Start: {formatDate(event.start_time)}</Text>
+                <Text style={styles.mutedText}>End: {formatDate(event.end_time)}</Text>
+                <View style={styles.eventActions}>
+                  <Pressable style={styles.outlineButton} onPress={() => openEditEvent(event)}>
+                    <Ionicons name="create-outline" size={16} color={COLORS.primary} />
+                    <Text style={styles.outlineButtonText}>Edit</Text>
+                  </Pressable>
+                  <Pressable style={styles.outlineButton} onPress={() => toggleEventStatus(event)}>
+                    <Ionicons name={event.status === 'closed' ? 'lock-open-outline' : 'lock-closed-outline'} size={16} color={COLORS.primary} />
+                    <Text style={styles.outlineButtonText}>{event.status === 'closed' ? 'Reopen' : 'Close Event'}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          <Modal visible={eventModalVisible} animationType="slide" transparent onRequestClose={() => setEventModalVisible(false)}>
+            <View style={styles.modalBackdrop}>
+              <View style={styles.modalCard}>
+                <Text style={styles.modalTitle}>{editingEventId ? 'Edit Event' : 'Create Event'}</Text>
+                <Text style={styles.inputLabel}>Event title *</Text>
+                <TextInput style={styles.input} value={eventTitle} onChangeText={setEventTitle} placeholder="e.g. Programming Seminar" placeholderTextColor={COLORS.textSecondary} />
+                <Text style={styles.inputLabel}>Event code *</Text>
+                <TextInput style={styles.input} value={eventCode} onChangeText={setEventCode} autoCapitalize="characters" placeholder="e.g. PROG2026" placeholderTextColor={COLORS.textSecondary} />
+                <Text style={styles.inputLabel}>Start date and time (optional)</Text>
+                <Pressable style={styles.dateTimeButton} onPress={() => openDateTimePicker('start')}>
+                  <Ionicons name="calendar-outline" size={18} color={COLORS.primary} />
+                  <Text style={eventStart ? styles.dateTimeValue : styles.dateTimePlaceholder}>{formatPickerValue(eventStart)}</Text>
+                  {eventStart ? <Pressable hitSlop={8} onPress={() => setEventStart('')}><Ionicons name="close-circle" size={18} color={COLORS.textSecondary} /></Pressable> : null}
+                </Pressable>
+                <Text style={styles.inputLabel}>End date and time (optional)</Text>
+                <Pressable style={styles.dateTimeButton} onPress={() => openDateTimePicker('end')}>
+                  <Ionicons name="calendar-outline" size={18} color={COLORS.primary} />
+                  <Text style={eventEnd ? styles.dateTimeValue : styles.dateTimePlaceholder}>{formatPickerValue(eventEnd)}</Text>
+                  {eventEnd ? <Pressable hitSlop={8} onPress={() => setEventEnd('')}><Ionicons name="close-circle" size={18} color={COLORS.textSecondary} /></Pressable> : null}
+                </Pressable>
+                <Text style={styles.inputHint}>Choose a date first, then choose the time. Times are saved as timestamps.</Text>
+                <View style={styles.modalActions}>
+                  <Pressable style={[styles.cancelButton, styles.modalActionButton]} onPress={() => setEventModalVisible(false)} disabled={savingEvent}><Text style={styles.cancelButtonText}>Cancel</Text></Pressable>
+                  <Pressable style={[styles.primaryButton, styles.modalActionButton]} onPress={() => void saveEvent()} disabled={savingEvent}>
+                    {savingEvent ? <ActivityIndicator color={COLORS.textOnPrimary} /> : <Text style={styles.primaryButtonText}>Save Changes</Text>}
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
+          {datePickerTarget ? (
+            <DateTimePicker
+              value={pickerValue}
+              mode={pickerStage}
+              display="default"
+              onChange={handleDateTimeChange}
+              is24Hour={false}
+            />
+          ) : null}
 
           <View style={styles.userManagementHeader}>
             <Text style={styles.sectionTitle}>User Management</Text>
@@ -527,13 +804,16 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: 20,
-  },
+  }, 
   pageTitle: {
     fontSize: 20,
-    fontWeight: '700',
+    lineHeight: 34,
+    fontWeight: '800',
     color: COLORS.textPrimary,
-    textAlign: 'center',
+    letterSpacing: -0.6,
+    marginBottom: 6,
     marginTop: 20,
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 14,
@@ -542,6 +822,28 @@ const styles = StyleSheet.create({
     marginTop: 7,
     lineHeight: 21,
   },
+  attendanceOverviewButton: {
+    backgroundColor: COLORS.card,
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 15,
+    marginBottom: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  attendanceOverviewIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: COLORS.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attendanceOverviewTextWrap: { flex: 1 },
+  attendanceOverviewTitle: { color: COLORS.textPrimary, fontSize: 15, fontWeight: '700' },
+  attendanceOverviewSubtitle: { color: COLORS.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 3 },
   summaryCard: {
     backgroundColor: COLORS.card,
     borderRadius: 18,
@@ -561,10 +863,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   totalCount: {
-    fontSize: 40,
+    fontSize: 30,
     fontWeight: '700',
     color: COLORS.primary,
-    marginVertical: 16,
+    marginVertical: 8,
   },
   statsRow: {
     flexDirection: 'row',
@@ -811,6 +1113,82 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 5,
   },
+  eventSection: {
+    marginBottom: 24,
+  },
+  eventCard: {
+    backgroundColor: COLORS.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 14,
+    marginBottom: 10,
+  },
+  eventCardTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 8,
+  },
+  eventTitleWrap: { flex: 1 },
+  eventTitle: {
+    color: COLORS.textPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  statusBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  openBadge: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#86EFAC',
+  },
+  closedBadge: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FCA5A5',
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  openBadgeText: { color: '#166534' },
+  closedBadgeText: { color: '#991B1B' },
+  eventActions: { flexDirection: 'row', gap: 10, marginTop: 12, flexWrap: 'wrap' },
+  outlineButton: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderWidth: 1, borderColor: COLORS.primary, borderRadius: 9,
+    paddingHorizontal: 11, paddingVertical: 8,
+  },
+  outlineButtonText: { color: COLORS.primary, fontSize: 12, fontWeight: '700' },
+  modalBackdrop: {
+    flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center', padding: 18,
+  },
+  modalCard: {
+    backgroundColor: COLORS.card, borderRadius: 18, padding: 20,
+    maxHeight: '90%',
+  },
+  modalTitle: { color: COLORS.textPrimary, fontSize: 20, fontWeight: '700', marginBottom: 16 },
+  inputLabel: { color: COLORS.textSecondary, fontSize: 12, fontWeight: '600', marginBottom: 6, marginTop: 8 },
+  input: {
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 11, color: COLORS.textPrimary,
+    backgroundColor: COLORS.background,
+  },
+  inputHint: { color: COLORS.textSecondary, fontSize: 11, marginTop: 8, lineHeight: 16 },
+  dateTimeButton: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 46, borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 11, backgroundColor: COLORS.background },
+  dateTimeValue: { flex: 1, color: COLORS.textPrimary, fontSize: 14 },
+  dateTimePlaceholder: { flex: 1, color: COLORS.textSecondary, fontSize: 14 },
+  modalActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'stretch', gap: 10, marginTop: 20 },
+  modalActionButton: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 44, marginTop: 0 },
+  cancelButton: { paddingHorizontal: 14, paddingVertical: 11, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border },
+  cancelButtonText: { color: COLORS.textPrimary, fontWeight: '600' },
   userManagementHeader: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -320,15 +320,13 @@ export default function TeacherScreen() {
       keyboardShouldPersistTaps="handled"
     >
       <Text style={styles.pageTitle}>Teacher Dashboard</Text>
-      <Text style={styles.subtitle}>
-        Monitor your events and attendance records.
-      </Text>
+      
 
       {/* Dashboard summary cards */}
       <View style={styles.statsGrid}>
         <StatCard
           icon="calendar-outline"
-          label="Total Events"
+          label="Total Events Created"
           value={
             dashboardLoading
               ? '...'
@@ -360,7 +358,7 @@ export default function TeacherScreen() {
       {dashboardLoading && (
         <View style={styles.inlineLoading}>
           <ActivityIndicator size="small" color={COLORS.primary} />
-          <Text style={styles.mutedText}>Loading statistics...</Text>
+          <Text style={styles.mutedText}>Loading events...</Text>
         </View>
       )}
 
@@ -425,6 +423,11 @@ export default function TeacherScreen() {
             100,
             Math.max(0, event.attendancePercentage)
           );
+          const eventStatus = String(
+            (event as typeof event & { status?: string }).status ?? ''
+          ).toLowerCase();
+          const isOpen = eventStatus === 'open';
+          const isClosed = eventStatus === 'closed';
 
           return (
             <View key={event.id} style={styles.eventStatCard}>
@@ -437,7 +440,26 @@ export default function TeacherScreen() {
               </View>
 
               <View style={styles.eventDetails}>
-                <Text style={styles.eventTitle}>{event.title}</Text>
+                <View style={styles.eventTitleRow}>
+                  <Text style={styles.eventTitle}>{event.title}</Text>
+                  {(isOpen || isClosed) && (
+                    <View
+                      style={[
+                        styles.statusBadge,
+                        isOpen ? styles.openBadge : styles.closedBadge,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.statusBadgeText,
+                          isOpen ? styles.openBadgeText : styles.closedBadgeText,
+                        ]}
+                      >
+                        {isOpen ? 'OPEN' : 'CLOSED'}
+                      </Text>
+                    </View>
+                  )}
+                </View>
 
                 <Text style={styles.eventCode}>
                   Code: {event.event_code}
@@ -620,9 +642,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   content: {
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 40,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 32,
   },
   centered: {
     flex: 1,
@@ -637,17 +659,19 @@ const styles = StyleSheet.create({
   },
   pageTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    lineHeight: 34,
+    fontWeight: '800',
     color: COLORS.textPrimary,
+    letterSpacing: -0.6,
     marginBottom: 6,
     marginTop: 20,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 13,
+    fontSize: 14,
     color: COLORS.textSecondary,
-    lineHeight: 20,
-    marginBottom: 16,
+    lineHeight: 21,
+    marginBottom: 22,
     textAlign: 'center',
   },
   statsGrid: {
@@ -736,11 +760,12 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 20,
+    lineHeight: 27,
+    fontWeight: '800',
     color: COLORS.textPrimary,
-    marginBottom: 12,
-    textAlign: 'center',
+    marginBottom: 10,
+    textAlign: 'center'
   },
   refreshButton: {
     flexDirection: 'row',
@@ -782,10 +807,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.card,
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 10,
-    gap: 10,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 12,
+    gap: 12,
   },
   eventIcon: {
     width: 40,
@@ -799,11 +824,43 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  eventTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 4,
+  },
   eventTitle: {
     color: COLORS.textPrimary,
     fontSize: 14,
     fontWeight: '700',
-    marginBottom: 4,
+    flex: 1,
+  },
+  statusBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  openBadge: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#86EFAC',
+  },
+  closedBadge: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FCA5A5',
+  },
+  statusBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  openBadgeText: {
+    color: '#166534',
+  },
+  closedBadgeText: {
+    color: '#991B1B',
   },
   eventCode: {
     color: COLORS.textSecondary,
@@ -849,29 +906,29 @@ const styles = StyleSheet.create({
   sectionDivider: {
     height: 1,
     backgroundColor: COLORS.border,
-    marginTop: 12,
+    marginTop: 14,
     marginBottom: 24,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
     color: COLORS.textPrimary,
-    marginBottom: 6,
-    marginTop: 10,
+    marginBottom: 7,
+    marginTop: 14,
   },
   input: {
     backgroundColor: COLORS.card,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 13,
     fontSize: 15,
     color: COLORS.textPrimary,
   },
   pickerField: {
     backgroundColor: COLORS.card,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
     paddingHorizontal: 14,

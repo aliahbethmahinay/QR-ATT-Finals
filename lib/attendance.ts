@@ -1,6 +1,5 @@
 import { supabase } from './supabase';
 import { parseQRPayload } from './qr';
-import { getEventByCode } from './events';
 
 /*
  * ==========================================
@@ -27,27 +26,22 @@ export async function getTeacherEventAttendance(
   teacherId: string
 ): Promise<TeacherEventAttendance[]> {
   /*
-   * Get all events created by this teacher
+   * Get all events created by this teacher.
+   * Closed events remain available for reviewing attendance.
    */
   const {
     data: events,
     error: eventError,
   } = await supabase
     .from('events')
-    .select(
-      'id, event_code, title, start_time, end_time'
-    )
+    .select('id, event_code, title, start_time, end_time')
     .eq('created_by', teacherId)
     .order('created_at', {
       ascending: false,
     });
 
   if (eventError || !events) {
-    console.error(
-      'Error loading teacher events:',
-      eventError
-    );
-
+    console.error('Error loading teacher events:', eventError);
     return [];
   }
 
@@ -55,44 +49,32 @@ export async function getTeacherEventAttendance(
     return [];
   }
 
-  const eventIds = events.map(
-    (event: any) => event.id
-  );
+  const eventIds = events.map((event: any) => event.id);
 
   /*
-   * Get attendance records for the teacher's events
+   * Get attendance records for the teacher's events.
    */
   const {
     data: attendance,
     error: attError,
   } = await supabase
     .from('attendance')
-    .select(
-      'student_id, scanned_at, event_id'
-    )
+    .select('student_id, scanned_at, event_id')
     .in('event_id', eventIds)
     .order('scanned_at', {
       ascending: false,
     });
 
   if (attError || !attendance) {
-    console.error(
-      'Error loading attendance:',
-      attError
-    );
-
+    console.error('Error loading attendance:', attError);
     return [];
   }
 
   /*
-   * Get the names of students who scanned
+   * Get the names of students who scanned.
    */
   const studentIds = [
-    ...new Set(
-      attendance.map(
-        (row: any) => row.student_id
-      )
-    ),
+    ...new Set(attendance.map((row: any) => row.student_id)),
   ];
 
   const nameByStudentId: Record<string, string> = {};
@@ -107,10 +89,7 @@ export async function getTeacherEventAttendance(
       .in('id', studentIds);
 
     if (profileError) {
-      console.error(
-        'Error loading student names:',
-        profileError
-      );
+      console.error('Error loading student names:', profileError);
     } else {
       profiles?.forEach((profile: any) => {
         nameByStudentId[profile.id] =
@@ -120,38 +99,27 @@ export async function getTeacherEventAttendance(
   }
 
   /*
-   * Combine events, attendance, and student names
+   * Combine events, attendance, and student names.
    */
   return events.map((event: any) => {
     const rows = attendance.filter(
-      (row: any) =>
-        row.event_id === event.id
+      (row: any) => row.event_id === event.id
     );
 
     return {
       eventId: event.id,
       eventCode: event.event_code,
       title: event.title,
-
-      startTime:
-        event.start_time ?? null,
-
-      endTime:
-        event.end_time ?? null,
-
+      startTime: event.start_time ?? null,
+      endTime: event.end_time ?? null,
       attendeeCount: rows.length,
 
-      attendees: rows.map(
-        (row: any) => ({
-          studentId: row.student_id,
-
-          studentName:
-            nameByStudentId[row.student_id] ||
-            'Name unavailable',
-
-          scannedAt: row.scanned_at,
-        })
-      ),
+      attendees: rows.map((row: any) => ({
+        studentId: row.student_id,
+        studentName:
+          nameByStudentId[row.student_id] || 'Name unavailable',
+        scannedAt: row.scanned_at,
+      })),
     };
   });
 }
@@ -186,7 +154,7 @@ export async function registerAttendance(
   studentId: string
 ): Promise<RegisterResult> {
   /*
-   * Parse QR code
+   * Parse and validate the QR code.
    */
   const result = parseQRPayload(rawPayload);
 
@@ -200,89 +168,76 @@ export async function registerAttendance(
   const payload = result.payload;
 
   /*
-   * Check event start and end times
+   * Find the existing event in Supabase.
+   * Never create an event automatically from a QR code.
+   */
+  const {
+    data: event,
+    error: eventError,
+  } = await supabase
+    .from('events')
+    .select('id, title, status, start_time, end_time')
+    .eq('event_code', payload.event)
+    .maybeSingle();
+
+  if (eventError) {
+    console.error('Error looking up event:', eventError);
+
+    return {
+      success: false,
+      message: 'Unable to verify this event. Please try again.',
+    };
+  }
+
+  if (!event) {
+    return {
+      success: false,
+      message: 'Event not found. Please scan a valid event QR code.',
+    };
+  }
+
+  /*
+   * Reject closed events.
+   */
+  if (event.status !== 'open') {
+    return {
+      success: false,
+      message: 'This event is closed. Attendance cannot be recorded.',
+      eventTitle: event.title,
+    };
+  }
+
+  /*
+   * Check the event's actual start and end times from Supabase.
    */
   const now = Date.now();
 
-  const start = payload.start
-    ? new Date(payload.start).getTime()
+  const start = event.start_time
+    ? new Date(event.start_time).getTime()
     : null;
 
-  const end = payload.end
-    ? new Date(payload.end).getTime()
+  const end = event.end_time
+    ? new Date(event.end_time).getTime()
     : null;
 
-  if (start && now < start) {
+  if (start !== null && now < start) {
     return {
       success: false,
       message: 'Event has not started yet.',
+      eventTitle: event.title,
     };
   }
 
-  if (end && now > end) {
+  if (end !== null && now > end) {
     return {
       success: false,
       message: 'Event has already ended.',
+      eventTitle: event.title,
     };
   }
 
   /*
-   * Event title
-   */
-  const title =
-    payload.title ?? payload.event;
-
-  /*
-   * Look for the existing event
-   */
-  let event: {
-    id: string;
-    title: string;
-  } | null = null;
-
-  const foundEvent = await getEventByCode(
-    payload.event
-  );
-
-  if (foundEvent) {
-    event = foundEvent;
-  } else {
-    /*
-     * Create event if it does not exist
-     */
-    const {
-      data: newEvent,
-      error: insertError,
-    } = await supabase
-      .from('events')
-      .insert([
-        {
-          event_code: payload.event,
-          title,
-          start_time: payload.start ?? null,
-          end_time: payload.end ?? null,
-        },
-      ])
-      .select('id, title')
-      .single();
-
-    if (insertError || !newEvent) {
-      console.error(
-        'Could not create event:',
-        insertError
-      );
-
-      return {
-        success: false,
-        message: 'Could not create event.',
-      };
-    }
-
-    event = newEvent;
-  }
-
-  /*
-   * Register student attendance
+   * Register student attendance.
    */
   const {
     error: attError,
@@ -297,20 +252,22 @@ export async function registerAttendance(
 
   if (attError) {
     /*
-     * Duplicate attendance
+     * Duplicate attendance.
      */
     if (attError.code === '23505') {
       return {
         success: false,
-        message:
-          'Already registered for this event.',
+        message: 'Already registered for this event.',
         eventTitle: event.title,
       };
     }
 
+    console.error('Error registering attendance:', attError);
+
     return {
       success: false,
-      message: attError.message,
+      message: 'Unable to record attendance. Please try again.',
+      eventTitle: event.title,
     };
   }
 
@@ -335,32 +292,21 @@ export async function getAttendanceHistory(
     error,
   } = await supabase
     .from('attendance')
-    .select(
-      'id, scanned_at, events ( event_code, title )'
-    )
+    .select('id, scanned_at, events ( event_code, title )')
     .eq('student_id', studentId)
     .order('scanned_at', {
       ascending: false,
     });
 
   if (error || !data) {
-    console.error(
-      'Error loading student history:',
-      error
-    );
-
+    console.error('Error loading student history:', error);
     return [];
   }
 
   return data.map((row: any) => ({
     id: row.id,
-
-    eventId:
-      row.events?.event_code ?? '',
-
-    eventTitle:
-      row.events?.title ?? '',
-
+    eventId: row.events?.event_code ?? '',
+    eventTitle: row.events?.title ?? '',
     scannedAt: row.scanned_at,
   }));
 }
@@ -386,9 +332,7 @@ export async function getTeacherEventSummary(
     error: eventError,
   } = await supabase
     .from('events')
-    .select(
-      'id, event_code, title'
-    )
+    .select('id, event_code, title')
     .eq('created_by', teacherId)
     .order('created_at', {
       ascending: false,
@@ -403,9 +347,7 @@ export async function getTeacherEventSummary(
     return [];
   }
 
-  const eventIds = events.map(
-    (event: any) => event.id
-  );
+  const eventIds = events.map((event: any) => event.id);
 
   if (eventIds.length === 0) {
     return [];
@@ -431,15 +373,13 @@ export async function getTeacherEventSummary(
   const counts: Record<string, number> = {};
 
   attRows.forEach((row: any) => {
-    counts[row.event_id] =
-      (counts[row.event_id] ?? 0) + 1;
+    counts[row.event_id] = (counts[row.event_id] ?? 0) + 1;
   });
 
   return events.map((event: any) => ({
     eventId: event.id,
     eventCode: event.event_code,
     title: event.title,
-    attendeeCount:
-      counts[event.id] ?? 0,
+    attendeeCount: counts[event.id] ?? 0,
   }));
 }

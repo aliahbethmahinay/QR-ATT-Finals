@@ -1,15 +1,20 @@
 export const COLORS = {
-  primary: '#47b0da',
-  background: '#F7F6F2',
-  card: '#FFFFFF',
-  textPrimary: '#14181F',
-  textSecondary: '#5D6B7A',
-  textOnPrimary: '#FFFFFF',
-  surface: '#EFF3F0',
-  border: '#DADFE3',
-  shadow: '#14181F',
+  primary: '#2563EB',
+  primaryLight: '#DBEAFE',
+  primaryDark: '#1D4ED8',
 
-  warning: '#C97A2B',
-  success: '#47b0da',
-  danger: '#B3261E',
+  background: '#F8FAFC',
+  card: '#FFFFFF',
+
+  textPrimary: '#0F172A',
+  textSecondary: '#64748B',
+  textOnPrimary: '#FFFFFF',
+
+  surface: '#EFF6FF',
+  border: '#E2E8F0',
+  shadow: '#000000',
+
+  success: '#16A34A',
+  warning: '#F59E0B',
+  danger: '#EF4444',
 } as const;
