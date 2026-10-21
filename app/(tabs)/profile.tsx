@@ -470,6 +470,17 @@ export default function ProfileScreen() {
             <Text style={styles.emptyDescription}>
               Please sign in again to view your profile.
             </Text>
+
+            <Pressable
+      onPress={handleSignOut}
+      disabled={loading}
+      style={styles.signOutButton}
+    >
+      <Text style={styles.signOutButtonText}>
+        {loading ? 'Signing Out...' : 'Sign Out'}
+      </Text>
+    </Pressable>
+
           </View>
         )}
 
@@ -965,6 +976,18 @@ const styles = StyleSheet.create({
 
   signOutButton: {
     width: '100%',
+    marginTop: 5,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 1,
+    paddingHorizontal: 1,
+    borderRadius: 12,
+    alignItems: 'center',
+},
+
+  signOutButtonText: {
+    color: COLORS.textOnPrimary,
+    fontSize: 15,
+    fontWeight: '600',
   },
 
   loadingCard: {

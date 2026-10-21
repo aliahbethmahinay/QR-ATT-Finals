@@ -11,12 +11,11 @@ type AuthState = {
 };
 
 let globalSession: Session | null = null;
-
 let globalUser: User | null = null;
-
-let globalLoading = false;
+let globalLoading = true;
 
 let listeners: Set<() => void> = new Set();
+let authInitialized = false;
 
 function notify() {
   listeners.forEach((l) => l());
@@ -30,6 +29,33 @@ export function setAuth(session: Session | null) {
   globalLoading = false;
 
   notify();
+}
+export function initializeAuth() {
+  if (authInitialized) return;
+
+  authInitialized = true;
+
+  // Listen for login, logout, and session refresh events.
+  supabase.auth.onAuthStateChange((_event, session) => {
+    setAuth(session);
+  });
+
+  // Restore the saved session when the app starts.
+  supabase.auth
+    .getSession()
+    .then(({ data, error }) => {
+      if (error) {
+        console.error('Failed to restore session:', error.message);
+        setAuth(null);
+        return;
+      }
+
+      setAuth(data.session);
+    })
+    .catch((error) => {
+      console.error('Session initialization failed:', error);
+      setAuth(null);
+    });
 }
 
 export function useAuth(): AuthState {
@@ -92,9 +118,21 @@ export async function signIn(email: string, password: string) {
 }
 
 export async function signOut() {
-  setAuth(null);
+  try {
+    const { error } = await supabase.auth.signOut();
 
-  supabase.auth.signOut().catch(() => {});
+    if (error) {
+      return { error: error.message };
+    }
 
-  return { error: null };
+    setAuth(null);
+
+    return { error: null };
+  } catch (error: any) {
+    return {
+      error: error?.message ?? 'Failed to sign out.',
+    };
+  }
 }
+
+initializeAuth();
